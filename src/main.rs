@@ -35,7 +35,7 @@ impl TimingBuffer {
         avg
     }
 
-    pub fn update(&mut self, timing: f64) -> f64 {
+    pub fn add_time(&mut self, timing: f64) {
         if self.buffer.is_empty() {
             for _i in 1..self.size {
                 self.buffer.push(timing);
@@ -44,9 +44,6 @@ impl TimingBuffer {
             self.buffer.remove(0);
             self.buffer.push(timing);
         }
-
-        let avg = self.avg();
-        avg
     }
 }
 
@@ -128,7 +125,9 @@ impl Universe<'_> {
 
         let glyph_cache = &mut self.glyph_cache;
 
-        let msg = format!("fps: {0:.2} ups: {1:.2}", self.fps.update(args.ext_dt), self.ups.avg());
+        self.fps.add_time(args.ext_dt);
+
+        let msg = format!("fps: {0:.2} ups: {1:.2}", self.fps.avg(), self.ups.avg());
 
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
@@ -156,7 +155,7 @@ impl Universe<'_> {
     }
 
     pub fn update(&mut self, args: &UpdateArgs) {
-        self.ups.update(args.dt);
+        self.ups.add_time(args.dt);
         let mut next = self.cells.clone();
 
         for row in 0..self.height {
