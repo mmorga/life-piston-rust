@@ -11,9 +11,11 @@ use piston::window::WindowSettings;
 use piston::Size;
 
 const WINDOW_SIZE: Size = Size {
-    width: 400.0,
-    height: 400.0,
+    width: 1000.0,
+    height: 1000.0,
 };
+
+const GRID_SIZE: u32 = 256;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,8 +54,8 @@ impl Universe {
         count
     }
 
-    fn cell_width(&self) -> u32 {
-        let cell_width = (self.window_size.width as u32) / self.width;
+    fn cell_width(&self) -> f64 {
+        let cell_width = self.window_size.width / self.width as f64;
         cell_width
     }
 
@@ -67,8 +69,8 @@ impl Universe {
 
                 if cell == Cell::Alive {
                     cells.push((
-                        (col * self.cell_width()) as f64,
-                        (row * self.cell_width()) as f64,
+                        col as f64 * self.cell_width(),
+                        row as f64 * self.cell_width(),
                     ));
                 }
             }
@@ -82,17 +84,20 @@ impl Universe {
         const BG_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
         const FG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
-        let cell_width = (args.window_size[0] as u32) / self.width;
-        let square = rectangle::square(0.0, 0.0, cell_width as f64);
+        let square = rectangle::square(0.0, 0.0, self.cell_width());
 
         let cells = self.live_cells();
+
+        let offset = (self.window_size.width - (self.cell_width() * self.width as f64)) / 2.0;
 
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             clear(BG_COLOR, gl);
 
+            // let text_trans = c.transform.trans(0.0, 0.0);
+            // text(FG_COLOR, 12, "Game of Life", cache, text_trans, gl);
             for (x, y) in cells.iter() {
-                let transform = c.transform.trans(*x, *y);
+                let transform = c.transform.trans(offset, offset).trans(*x, *y);
 
                 // Draw a box rotating around the middle of the screen.
                 rectangle(FG_COLOR, square, transform, gl);
@@ -134,8 +139,8 @@ impl Universe {
     }
 
     pub fn new(opengl: OpenGL, window_size: Size) -> Universe {
-        let width = 64;
-        let height = 64;
+        let width = GRID_SIZE;
+        let height = GRID_SIZE;
 
         let cells = (0..width * height)
             .map(|i| {
