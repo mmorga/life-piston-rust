@@ -10,6 +10,10 @@ use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
 use piston::Size;
 
+mod timing_buffer;
+
+use timing_buffer::TimingBuffer;
+
 const WINDOW_SIZE: Size = Size {
     width: 1000.0,
     height: 1000.0,
@@ -19,36 +23,6 @@ const GRID_SIZE: u32 = 256;
 
 const BG_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const FG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-
-pub struct TimingBuffer {
-    buffer: Vec<f64>,
-    size: usize,
-}
-
-impl TimingBuffer {
-    pub fn new(size: usize) -> TimingBuffer {
-        TimingBuffer {
-            buffer: Vec::with_capacity(size),
-            size,
-        }
-    }
-
-    pub fn avg(&self) -> f64 {
-        let avg = 1.0 / (self.buffer.iter().sum::<f64>() / self.buffer.len() as f64);
-        avg
-    }
-
-    pub fn add_time(&mut self, timing: f64) {
-        if self.buffer.is_empty() {
-            for _i in 1..self.size {
-                self.buffer.push(timing);
-            }
-        } else {
-            self.buffer.remove(0);
-            self.buffer.push(timing);
-        }
-    }
-}
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
