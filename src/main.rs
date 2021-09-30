@@ -4,7 +4,7 @@ extern crate opengl_graphics;
 extern crate piston;
 
 use glutin_window::GlutinWindow as Window;
-use opengl_graphics::{GlGraphics, OpenGL};
+use opengl_graphics::{GlGraphics, GlyphCache, OpenGL, TextureSettings};
 use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
@@ -17,6 +17,39 @@ const WINDOW_SIZE: Size = Size {
 
 const GRID_SIZE: u32 = 256;
 
+pub struct TimingBuffer {
+    buffer: Vec<f64>,
+    size: usize,
+}
+
+impl TimingBuffer {
+    pub fn new(size: usize) -> TimingBuffer {
+        TimingBuffer {
+            buffer: Vec::with_capacity(size),
+            size,
+        }
+    }
+
+    pub fn avg(&self) -> f64 {
+        let avg = 1.0 / (self.buffer.iter().sum::<f64>() / self.buffer.len() as f64);
+        avg
+    }
+
+    pub fn update(&mut self, timing: f64) -> f64 {
+        if self.buffer.is_empty() {
+            for _i in 1..self.size {
+                self.buffer.push(timing);
+            }
+        } else {
+            self.buffer.remove(0);
+            self.buffer.push(timing);
+        }
+
+        let avg = self.avg();
+        avg
+    }
+}
+
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cell {
@@ -24,15 +57,18 @@ pub enum Cell {
     Alive = 1,
 }
 
-pub struct Universe {
+pub struct Universe<'a> {
     gl: GlGraphics, // OpenGL drawing backend.
+    glyph_cache: GlyphCache<'a>,
     width: u32,
     height: u32,
     cells: Vec<Cell>,
     window_size: Size,
+    fps: TimingBuffer,
+    ups: TimingBuffer,
 }
 
-impl Universe {
+impl Universe<'_> {
     fn get_index(&self, row: u32, column: u32) -> usize {
         (row * self.width + column) as usize
     }
@@ -55,7 +91,7 @@ impl Universe {
     }
 
     fn cell_width(&self) -> f64 {
-        let cell_width = self.window_size.width / self.width as f64;
+        let cell_width = (self.window_size.width - 30.0)/ self.width as f64;
         cell_width
     }
 
@@ -90,22 +126,37 @@ impl Universe {
 
         let offset = (self.window_size.width - (self.cell_width() * self.width as f64)) / 2.0;
 
+        let glyph_cache = &mut self.glyph_cache;
+
+        let msg = format!("fps: {0:.2} ups: {1:.2}", self.fps.update(args.ext_dt), self.ups.avg());
+
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             clear(BG_COLOR, gl);
 
-            // let text_trans = c.transform.trans(0.0, 0.0);
-            // text(FG_COLOR, 12, "Game of Life", cache, text_trans, gl);
+            // Draw the live cells
             for (x, y) in cells.iter() {
                 let transform = c.transform.trans(offset, offset).trans(*x, *y);
 
                 // Draw a box rotating around the middle of the screen.
                 rectangle(FG_COLOR, square, transform, gl);
             }
+
+            // Draw the fps calculation
+            text::Text::new_color([0.0, 0.5, 0.0, 1.0], 16)
+                .draw(
+                    &msg,
+                    glyph_cache,
+                    &DrawState::default(),
+                    c.transform.trans(10.0, 15.0),
+                    gl,
+                )
+                .unwrap();
         });
     }
 
-    pub fn update(&mut self, _args: &UpdateArgs) {
+    pub fn update(&mut self, args: &UpdateArgs) {
+        self.ups.update(args.dt);
         let mut next = self.cells.clone();
 
         for row in 0..self.height {
@@ -138,9 +189,16 @@ impl Universe {
         self.cells = next;
     }
 
-    pub fn new(opengl: OpenGL, window_size: Size) -> Universe {
+    pub fn new(opengl: OpenGL, window_size: Size) -> Universe<'static> {
         let width = GRID_SIZE;
         let height = GRID_SIZE;
+        let texture_settings = TextureSettings::new();
+        let glyph_cache = GlyphCache::new(
+            "/System/Library/Fonts/Supplemental/Futura.ttc",
+            (),
+            texture_settings,
+        )
+        .unwrap();
 
         let cells = (0..width * height)
             .map(|i| {
@@ -154,10 +212,13 @@ impl Universe {
 
         Universe {
             gl: GlGraphics::new(opengl),
+            glyph_cache,
             width,
             height,
             cells,
             window_size,
+            fps: TimingBuffer::new(100),
+            ups: TimingBuffer::new(100),
         }
     }
 }
@@ -176,7 +237,18 @@ fn main() {
     // Create a new game and run it.
     let mut app = Universe::new(opengl, WINDOW_SIZE);
 
-    let mut events = Events::new(EventSettings::new());
+    let mut event_settings = EventSettings::new();
+    event_settings.ups = 30; // max number of updates per second
+    println!("event_settings: {:?}", event_settings);
+    // {
+    //     max_fps: DEFAULT_MAX_FPS,
+    //     ups: DEFAULT_UPS,
+    //     swap_buffers: true,
+    //     bench_mode: false,
+    //     lazy: false,
+    //     ups_reset: DEFAULT_UPS_RESET,
+    // }
+    let mut events = Events::new(event_settings);
     while let Some(e) = events.next(&mut window) {
         if let Some(args) = e.render_args() {
             app.render(&args);
