@@ -17,6 +17,9 @@ const WINDOW_SIZE: Size = Size {
 
 const GRID_SIZE: u32 = 256;
 
+const BG_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const FG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
 pub struct TimingBuffer {
     buffer: Vec<f64>,
     size: usize,
@@ -60,9 +63,11 @@ pub struct Universe<'a> {
     width: u32,
     height: u32,
     cells: Vec<Cell>,
-    window_size: Size,
     fps: TimingBuffer,
-    ups: TimingBuffer,
+    square: graphics::types::Rectangle,
+    cell_width: f64,
+    offset: f64,
+    changed_cells: Vec<(f64, f64, Cell)>,
 }
 
 impl Universe<'_> {
@@ -87,58 +92,31 @@ impl Universe<'_> {
         count
     }
 
-    fn cell_width(&self) -> f64 {
-        let cell_width = (self.window_size.width - 30.0)/ self.width as f64;
-        cell_width
-    }
-
-    fn live_cells(&self) -> Vec<(f64, f64)> {
-        let mut cells = Vec::new();
-
-        for row in 0..self.height {
-            for col in 0..self.width {
-                let idx = self.get_index(row, col);
-                let cell = self.cells[idx];
-
-                if cell == Cell::Alive {
-                    cells.push((
-                        col as f64 * self.cell_width(),
-                        row as f64 * self.cell_width(),
-                    ));
-                }
-            }
-        }
-        cells
-    }
-
     pub fn render(&mut self, args: &RenderArgs) {
         use graphics::*;
 
-        const BG_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-        const FG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-
-        let square = rectangle::square(0.0, 0.0, self.cell_width());
-
-        let cells = self.live_cells();
-
-        let offset = (self.window_size.width - (self.cell_width() * self.width as f64)) / 2.0;
-
-        let glyph_cache = &mut self.glyph_cache;
-
         self.fps.add_time(args.ext_dt);
 
-        let msg = format!("fps: {0:.2} ups: {1:.2}", self.fps.avg(), self.ups.avg());
+        let msg = format!("fps: {0:.2}", self.fps.avg());
+        let square = self.square;
+        let glyph_cache = &mut self.glyph_cache;
+        let offset = self.offset;
+        let changed_cells = &self.changed_cells;
 
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             clear(BG_COLOR, gl);
 
             // Draw the live cells
-            for (x, y) in cells.iter() {
+            for (x, y, cell) in changed_cells.iter() {
                 let transform = c.transform.trans(offset, offset).trans(*x, *y);
 
                 // Draw a box rotating around the middle of the screen.
-                rectangle(FG_COLOR, square, transform, gl);
+                let color = match cell {
+                    Cell::Alive => FG_COLOR,
+                    Cell::Dead => BG_COLOR,
+                };
+                rectangle(color, square, transform, gl);
             }
 
             // Draw the fps calculation
@@ -152,10 +130,10 @@ impl Universe<'_> {
                 )
                 .unwrap();
         });
+        self.changed_cells.clear();
     }
 
-    pub fn update(&mut self, args: &UpdateArgs) {
-        self.ups.add_time(args.dt);
+    pub fn update(&mut self, _args: &UpdateArgs) {
         let mut next = self.cells.clone();
 
         for row in 0..self.height {
@@ -167,16 +145,44 @@ impl Universe<'_> {
                 let next_cell = match (cell, live_neighbors) {
                     // Rule 1: Any live cell with fewer than two live neighbors
                     // dies, as if caused by underpopulation.
-                    (Cell::Alive, x) if x < 2 => Cell::Dead,
+                    (Cell::Alive, x) if x < 2 => {
+                        self.changed_cells.push((
+                            col as f64 * self.cell_width,
+                            row as f64 * self.cell_width,
+                            Cell::Dead,
+                        ));
+                        Cell::Dead
+                    }
                     // Rule 2: Any live cell with two or three live neighbors
                     // lives on to the next generation.
-                    (Cell::Alive, 2) | (Cell::Alive, 3) => Cell::Alive,
+                    (Cell::Alive, 2) | (Cell::Alive, 3) => {
+                        self.changed_cells.push((
+                            col as f64 * self.cell_width,
+                            row as f64 * self.cell_width,
+                            Cell::Alive,
+                        ));
+                        Cell::Alive
+                    }
                     // Rule 3: Any live cell with more than three live
                     // neighbors dies, as if by overpopulation.
-                    (Cell::Alive, x) if x > 3 => Cell::Dead,
+                    (Cell::Alive, x) if x > 3 => {
+                        self.changed_cells.push((
+                            col as f64 * self.cell_width,
+                            row as f64 * self.cell_width,
+                            Cell::Dead,
+                        ));
+                        Cell::Dead
+                    }
                     // Rule 4: Any dead cell with exactly three live neighbors
                     // becomes a live cell, as if by reproduction.
-                    (Cell::Dead, 3) => Cell::Alive,
+                    (Cell::Dead, 3) => {
+                        self.changed_cells.push((
+                            col as f64 * self.cell_width,
+                            row as f64 * self.cell_width,
+                            Cell::Alive,
+                        ));
+                        Cell::Alive
+                    }
                     // All other cells remain in the same state.
                     (otherwise, _) => otherwise,
                 };
@@ -199,7 +205,7 @@ impl Universe<'_> {
         )
         .unwrap();
 
-        let cells = (0..width * height)
+        let cells: Vec<Cell> = (0..width * height)
             .map(|i| {
                 if i % 2 == 0 || i % 7 == 0 {
                     Cell::Alive
@@ -209,15 +215,33 @@ impl Universe<'_> {
             })
             .collect();
 
+        let cell_width = (window_size.width - 30.0) / width as f64;
+        let mut changed_cells: Vec<(f64, f64, Cell)> = Vec::new();
+        for row in 0..height {
+            for col in 0..width {
+                let idx = (row * width + col) as usize;
+                let cell = cells[idx];
+                if cell == Cell::Alive {
+                    changed_cells.push((
+                        col as f64 * cell_width,
+                        row as f64 * cell_width,
+                        Cell::Alive,
+                    ))
+                }
+            }
+        }
+
         Universe {
             gl: GlGraphics::new(opengl),
             glyph_cache,
             width,
             height,
             cells,
-            window_size,
             fps: TimingBuffer::new(100),
-            ups: TimingBuffer::new(100),
+            cell_width,
+            square: graphics::rectangle::square(0.0, 0.0, cell_width),
+            offset: (window_size.width - (cell_width * width as f64)) / 2.0,
+            changed_cells,
         }
     }
 }
@@ -236,18 +260,7 @@ fn main() {
     // Create a new game and run it.
     let mut app = Universe::new(opengl, WINDOW_SIZE);
 
-    let mut event_settings = EventSettings::new();
-    event_settings.ups = 30; // max number of updates per second
-    println!("event_settings: {:?}", event_settings);
-    // {
-    //     max_fps: DEFAULT_MAX_FPS,
-    //     ups: DEFAULT_UPS,
-    //     swap_buffers: true,
-    //     bench_mode: false,
-    //     lazy: false,
-    //     ups_reset: DEFAULT_UPS_RESET,
-    // }
-    let mut events = Events::new(event_settings);
+    let mut events = Events::new(EventSettings::new());
     while let Some(e) = events.next(&mut window) {
         if let Some(args) = e.render_args() {
             app.render(&args);
