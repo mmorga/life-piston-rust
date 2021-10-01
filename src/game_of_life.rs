@@ -9,7 +9,7 @@ pub struct Universe {
     width: u32,
     height: u32,
     cells: Vec<Cell>,
-    pub changed_cells: Vec<(u32, u32, Cell)>,
+    pub live_cells: Vec<(u32, u32)>,
 }
 
 impl Universe {
@@ -34,12 +34,10 @@ impl Universe {
         count
     }
 
-    pub fn clear_changed_cells(&mut self) {
-        self.changed_cells.clear();
-    }
-
     pub fn update(&mut self) {
         let mut next = self.cells.clone();
+
+        self.live_cells.clear();
 
         for row in 0..self.height {
             for col in 0..self.width {
@@ -50,26 +48,24 @@ impl Universe {
                 let next_cell = match (cell, live_neighbors) {
                     // Rule 1: Any live cell with fewer than two live neighbors
                     // dies, as if caused by underpopulation.
-                    (Cell::Alive, x) if x < 2 => {
-                        self.changed_cells.push((col, row, Cell::Dead));
-                        Cell::Dead
-                    }
+                    (Cell::Alive, x) if x < 2 => Cell::Dead,
                     // Rule 2: Any live cell with two or three live neighbors
                     // lives on to the next generation.
                     (Cell::Alive, 2) | (Cell::Alive, 3) => {
-                        self.changed_cells.push((col, row, Cell::Alive));
+                        self.live_cells.push((col, row));
                         Cell::Alive
                     }
                     // Rule 3: Any live cell with more than three live
                     // neighbors dies, as if by overpopulation.
-                    (Cell::Alive, x) if x > 3 => {
-                        self.changed_cells.push((col, row, Cell::Dead));
-                        Cell::Dead
-                    }
+                    (Cell::Alive, x) if x > 3 => Cell::Dead,
                     // Rule 4: Any dead cell with exactly three live neighbors
                     // becomes a live cell, as if by reproduction.
                     (Cell::Dead, 3) => {
-                        self.changed_cells.push((col, row, Cell::Alive));
+                        self.live_cells.push((col, row));
+                        Cell::Alive
+                    }
+                    (Cell::Alive, _) => {
+                        self.live_cells.push((col, row));
                         Cell::Alive
                     }
                     // All other cells remain in the same state.
@@ -93,13 +89,13 @@ impl Universe {
                 }
             })
             .collect();
-        let mut changed_cells: Vec<(u32, u32, Cell)> = Vec::new();
+        let mut live_cells: Vec<(u32, u32)> = Vec::new();
         for row in 0..height {
             for col in 0..width {
                 let idx = (row * width + col) as usize;
                 let cell = cells[idx];
                 if cell == Cell::Alive {
-                    changed_cells.push((col, row, Cell::Alive))
+                    live_cells.push((col, row))
                 }
             }
         }
@@ -108,7 +104,7 @@ impl Universe {
             width,
             height,
             cells,
-            changed_cells,
+            live_cells,
         }
     }
 }

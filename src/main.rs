@@ -12,7 +12,7 @@ use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
 use piston::Size;
-use game_of_life::{Cell, Universe};
+use game_of_life::{Universe};
 use timing_buffer::TimingBuffer;
 
 const WINDOW_SIZE: Size = Size {
@@ -45,7 +45,7 @@ impl ViewOfLife<'_> {
         let square = self.square;
         let glyph_cache = &mut self.glyph_cache;
         let offset = self.offset;
-        let changed_cells = &self.universe.changed_cells;
+        let live_cells = &self.universe.live_cells;
         let cell_width = self.cell_width;
 
         self.gl.draw(args.viewport(), |c, gl| {
@@ -53,17 +53,12 @@ impl ViewOfLife<'_> {
             clear(BG_COLOR, gl);
 
             // Draw the live cells
-            for (x, y, cell) in changed_cells.iter() {
+            for (x, y) in live_cells.iter() {
                 let dx = *x as f64 * cell_width;
                 let dy = *y as f64 * cell_width;
                 let transform = c.transform.trans(offset, offset).trans(dx, dy);
 
-                // Draw a box rotating around the middle of the screen.
-                let color = match cell {
-                    Cell::Alive => FG_COLOR,
-                    Cell::Dead => BG_COLOR,
-                };
-                rectangle(color, square, transform, gl);
+                rectangle(FG_COLOR, square, transform, gl);
             }
 
             // Draw the fps calculation
@@ -77,7 +72,6 @@ impl ViewOfLife<'_> {
                 )
                 .unwrap();
         });
-        self.universe.clear_changed_cells();
     }
 
     pub fn update(&mut self, _args: &UpdateArgs) {
