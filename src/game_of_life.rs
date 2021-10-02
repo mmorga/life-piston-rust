@@ -6,8 +6,8 @@ pub enum Cell {
 }
 
 pub struct Universe {
-    width: u32,
-    height: u32,
+    pub width: u32,
+    pub height: u32,
     cells: Vec<Cell>,
     pub live_cells: Vec<(u32, u32)>,
 }

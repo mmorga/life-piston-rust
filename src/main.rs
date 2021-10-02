@@ -15,50 +15,68 @@ use piston::Size;
 use game_of_life::{Universe};
 use timing_buffer::TimingBuffer;
 
+// Laptop size 2880 x 1800 (half is 1440x900)
 const WINDOW_SIZE: Size = Size {
-    width: 1000.0,
-    height: 1000.0,
+    width: 1440.0,
+    height: 900.0,
 };
-
-const GRID_SIZE: u32 = 256;
-
-const BG_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const FG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 pub struct ViewOfLife<'a> {
     gl: GlGraphics, // OpenGL drawing backend.
     glyph_cache: GlyphCache<'a>,
     fps: TimingBuffer,
     square: graphics::types::Rectangle,
-    cell_width: f64,
-    offset: f64,
+    cell_size: f64,
+    offset_x: f64,
+    offset_y: f64,
     universe: Universe,
 }
 
 impl ViewOfLife<'_> {
+    const BG_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    const FG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
+    // updates square, offset, cell_width for current screen size
+    // we want the universe to be displayed with square boxes
+    fn calculate (&mut self, args: &RenderArgs) {
+        let u_width = self.universe.width as f64;
+        let u_height = self.universe.height as f64;
+        let w_width = args.draw_size[0] as f64 / 2.0;
+        let w_height = args.draw_size[1] as f64 / 2.0;
+        let top_margin = 30.0; // Space for FPS message
+        let cell_width = w_width / u_width;
+        let cell_height = (w_height - top_margin) / u_height;
+        self.cell_size = cell_width.min(cell_height);
+        self.offset_x = (w_width - (self.cell_size * u_width)) / 2.0; // left margin
+        self.offset_y = (w_height - (self.cell_size * u_height)) / 2.0 + top_margin; // top margin
+        self.square = graphics::rectangle::square(0.0, 0.0, self.cell_size);
+    }
+
     pub fn render(&mut self, args: &RenderArgs) {
         use graphics::*;
 
         self.fps.add_time(args.ext_dt);
 
         let msg = format!("fps: {0:.2}", self.fps.avg());
+        self.calculate(args);
         let square = self.square;
         let glyph_cache = &mut self.glyph_cache;
-        let offset = self.offset;
+        let offset_x = self.offset_x;
+        let offset_y = self.offset_y;
         let live_cells = &self.universe.live_cells;
-        let cell_width = self.cell_width;
+        let cell_size = self.cell_size;
 
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
-            clear(BG_COLOR, gl);
+            clear(Self::BG_COLOR, gl);
 
             // Draw the live cells
             for (x, y) in live_cells.iter() {
-                let dx = *x as f64 * cell_width;
-                let dy = *y as f64 * cell_width;
-                let transform = c.transform.trans(offset, offset).trans(dx, dy);
+                let dx = *x as f64 * cell_size;
+                let dy = *y as f64 * cell_size;
+                let transform = c.transform.trans(offset_x, offset_y).trans(dx, dy);
 
-                rectangle(FG_COLOR, square, transform, gl);
+                rectangle(Self::FG_COLOR, square, transform, gl);
             }
 
             // Draw the fps calculation
@@ -78,7 +96,7 @@ impl ViewOfLife<'_> {
         self.universe.update();
     }
 
-    pub fn new(opengl: OpenGL, window_size: Size, width: u32, height: u32) -> ViewOfLife<'static> {
+    pub fn new(opengl: OpenGL, width: u32, height: u32) -> ViewOfLife<'static> {
         let texture_settings = TextureSettings::new();
         let glyph_cache = GlyphCache::new(
             "/System/Library/Fonts/Supplemental/Futura.ttc",
@@ -87,15 +105,14 @@ impl ViewOfLife<'_> {
         )
         .unwrap();
 
-        let cell_width = (window_size.width - 30.0) / width as f64;
-
         ViewOfLife {
             gl: GlGraphics::new(opengl),
             glyph_cache,
             fps: TimingBuffer::new(100),
-            cell_width,
-            square: graphics::rectangle::square(0.0, 0.0, cell_width),
-            offset: (window_size.width - (cell_width * width as f64)) / 2.0,
+            cell_size: 10.0,
+            square: graphics::rectangle::square(0.0, 0.0, 10.0),
+            offset_x: 0.0,
+            offset_y: 0.0,
             universe: Universe::new(width, height),
         }
     }
@@ -109,11 +126,12 @@ fn main() {
     let mut window: Window = WindowSettings::new("game-of-life", WINDOW_SIZE)
         .graphics_api(opengl)
         .exit_on_esc(true)
+        // .fullscreen(true)
         .build()
         .unwrap();
 
     // Create a new game and run it.
-    let mut app = ViewOfLife::new(opengl, WINDOW_SIZE, GRID_SIZE, GRID_SIZE);
+    let mut app = ViewOfLife::new(opengl, WINDOW_SIZE.width as u32 / 2, WINDOW_SIZE.height as u32 / 2);
 
     let mut events = Events::new(EventSettings::new());
     while let Some(e) = events.next(&mut window) {
